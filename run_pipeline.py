@@ -22,8 +22,11 @@ This file should stay simple and src/ is where the detailed logic belongs.
 
 from __future__ import annotations
 
+import pandas as pd
+
 from src.ingestion import print_ingestion_summary, run_ingestion
 from src.paths import check_project_dirs
+from src.validation import validate_expected_columns
 
 
 def main() -> None:
@@ -34,6 +37,20 @@ def main() -> None:
 
     result_of_ingestion = run_ingestion()
     print_ingestion_summary(result_of_ingestion)
+
+    ingested_data = pd.read_parquet(
+        result_of_ingestion.output_path
+    )
+
+    result_of_validation = validate_expected_columns(
+        data=ingested_data
+    )
+
+    print("\nSchema validation")
+    print("-----------------")
+    print(f"Is valid: {result_of_validation.is_valid}")
+    print(f"Missing columns: {result_of_validation.missing_columns}")
+    print(f"Unexpected columns: {result_of_validation.unexpected_columns}")
 
 
 if __name__ == "__main__":
