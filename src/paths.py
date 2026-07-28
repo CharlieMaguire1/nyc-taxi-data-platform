@@ -5,15 +5,15 @@ from __future__ import annotations
 """
 These are the central paths definitions for the NYC Taxi data platform.
 
-This module centralises project directory and file path definitons so that the
-ingestion, validation, tranformation, and reporting stages use consistent, 
+This module centralises project directory and file path definitions so that the
+ingestion, validation, transformation, and reporting stages use consistent, 
 reusable paths instead of embedding directory strings directly inside their
 implementation.
 
 Current stage:
 - data/raw/ stores the source files downloaded from NYC TLC.
 - data/processed/ stores the parquet outputs produced from the pipeline.
-- outputs/metrics/ and outputs/figures/ are reserved for the later pipelne stages
+- outputs/metrics/ and outputs/figures/ are reserved for the later pipeline stages
 """
 
 from pathlib import Path
@@ -45,4 +45,4 @@ def check_project_dirs() -> None:
     ]
     
     for directory in directories:
-        directory.mkdir(parents = True, exist_ok = True)
+        directory.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,5 @@
 # run_pipeline.py
 
-from __future__ import annotations
-
 """
 This python file is the pipeline entry point for the NYC Taxi platform.
 
@@ -18,9 +16,11 @@ The planned pipeline direction is the following:
     Create the tables that are ready for analytics, such as daily trip and fare metrics.
 5. Outputs:
     Save the metrics, figures, and load the curated outputs to a database later.
-    
-This file should stay simple and src/ is where the detailed logic belongs. 
+
+This file should stay simple and src/ is where the detailed logic belongs.
 """
+
+from __future__ import annotations
 
 from src.ingestion import print_ingestion_summary, run_ingestion
 from src.paths import check_project_dirs
@@ -31,10 +31,10 @@ def main() -> None:
     This function runs the current batch pipeline.
     """
     check_project_dirs()
-    
+
     result_of_ingestion = run_ingestion()
     print_ingestion_summary(result_of_ingestion)
-    
+
 
 if __name__ == "__main__":
     main()
