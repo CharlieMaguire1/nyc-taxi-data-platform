@@ -6,7 +6,7 @@ This script is the validation logic for the NYC Taxi data platform.
 The current validation scope checks whether the ingested dataset contains the
 expected source and provenance columns.
 
-The row-level data quality runs will be added later
+The row-level data quality rules will be added later
 """
 
 from __future__ import annotations
@@ -46,6 +46,7 @@ EXPECTED_PROVENANCE_COLUMNS = {
 
 EXPECTED_COLUMNS = EXPECTED_SOURCE_COLUMNS | EXPECTED_PROVENANCE_COLUMNS
 
+
 @dataclass(frozen=True)
 class ResultOfSchemaValidation:
     is_valid: bool
@@ -59,7 +60,7 @@ def validate_expected_columns(
     data: pd.DataFrame,
 ) -> ResultOfSchemaValidation:
     """
-    This function checks whether the DataFrame contains the expected pipelines columns.
+    This function checks whether the DataFrame contains the expected pipeline columns.
     """
     actual_columns = {str(column) for column in data.columns}
 
@@ -73,3 +74,16 @@ def validate_expected_columns(
         missing_columns=missing_columns,
         unexpected_columns=unexpected_columns,
     )
+
+
+def print_schema_validation_summary(
+    result: ResultOfSchemaValidation,
+) -> None:
+    """
+    This function prints the schema column validation results to the terminal
+    """
+    print("\nSchema validation")
+    print("-----------------")
+    print(f"Is valid: {result.is_valid}")
+    print(f"Missing columns: {result.missing_columns}")
+    print(f"Unexpected columns: {result.unexpected_columns}")

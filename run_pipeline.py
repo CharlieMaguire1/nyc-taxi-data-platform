@@ -26,7 +26,7 @@ import pandas as pd
 
 from src.ingestion import print_ingestion_summary, run_ingestion
 from src.paths import check_project_dirs
-from src.validation import validate_expected_columns
+from src.validation import validate_expected_columns, print_schema_validation_summary
 
 
 def main() -> None:
@@ -46,11 +46,7 @@ def main() -> None:
         data=ingested_data
     )
 
-    print("\nSchema validation")
-    print("-----------------")
-    print(f"Is valid: {result_of_validation.is_valid}")
-    print(f"Missing columns: {result_of_validation.missing_columns}")
-    print(f"Unexpected columns: {result_of_validation.unexpected_columns}")
+    print_schema_validation_summary(result_of_validation)
 
 
 if __name__ == "__main__":
