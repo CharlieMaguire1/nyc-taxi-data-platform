@@ -12,6 +12,7 @@ The row-level data quality rules will be added later
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import Counter
 
 import pandas as pd
 
@@ -50,29 +51,60 @@ EXPECTED_COLUMNS = EXPECTED_SOURCE_COLUMNS | EXPECTED_PROVENANCE_COLUMNS
 @dataclass(frozen=True)
 class ResultOfSchemaValidation:
     is_valid: bool
+    row_count: int
     expected_columns: list[str]
     actual_columns: list[str]
     missing_columns: list[str]
     unexpected_columns: list[str]
+    duplicated_columns: list[str]
+    is_empty: bool
 
 
 def validate_expected_columns(
     data: pd.DataFrame,
 ) -> ResultOfSchemaValidation:
     """
-    This function checks whether the DataFrame contains the expected pipeline columns.
-    """
-    actual_columns = {str(column) for column in data.columns}
+    This function validates the basic structural contract of the dataset.
 
-    missing_columns = sorted(EXPECTED_COLUMNS - actual_columns)
-    unexpected_columns = sorted(actual_columns - EXPECTED_COLUMNS)
+    Structural validation fails when:
+        - One or more required columns are missing;
+        - Duplicate column names are present; or
+        - The dataset contains no rows.
+
+    The unexpected rows are recorded but do not currently fail validation.
+    """
+    actual_columns = [str(column) for column in data.columns]
+    actual_column_set = set(actual_columns)
+
+    column_counts = Counter(actual_columns)
+
+    missing_columns = sorted(EXPECTED_COLUMNS - actual_column_set)
+    unexpected_columns = sorted(actual_column_set - EXPECTED_COLUMNS)
+
+    duplicate_columns = sorted(
+        column
+        for column, count in column_counts.items()
+        if count > 1
+    )
+
+    row_count = len(data)
+    is_empty = row_count == 0
+
+    is_valid = (
+        not missing_columns
+        and not duplicate_columns
+        and not is_empty
+    )
 
     return ResultOfSchemaValidation(
-        is_valid=not missing_columns,
+        is_valid=is_valid,
+        row_count=row_count,
         expected_columns=sorted(EXPECTED_COLUMNS),
-        actual_columns=sorted(actual_columns),
+        actual_columns=actual_columns,
         missing_columns=missing_columns,
         unexpected_columns=unexpected_columns,
+        duplicated_columns=duplicate_columns,
+        is_empty=is_empty,
     )
 
 
@@ -85,5 +117,8 @@ def print_schema_validation_summary(
     print("\nSchema validation")
     print("-----------------")
     print(f"Is valid: {result.is_valid}")
+    print(f"Row count: {result.row_count:,}")
+    print(f"Dataset is empty: {result.is_empty}")
     print(f"Missing columns: {result.missing_columns}")
     print(f"Unexpected columns: {result.unexpected_columns}")
+    print(f"Duplicate columns: {result.duplicated_columns}")
