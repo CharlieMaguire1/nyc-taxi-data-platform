@@ -1,7 +1,11 @@
-name: nyc-taxi-data-platform
+name: nyc-taxi-de
+
 channels:
     - conda-forge
+
 dependencies:
-    - python = 3.11
+    - python=3.11
     - pandas
     - pyarrow
+    - requests
+    - pytest
