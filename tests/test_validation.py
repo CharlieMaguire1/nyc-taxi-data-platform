@@ -26,7 +26,7 @@ def test_valid_dataset_passes() -> None:
     assert result.is_empty is False
     assert result.missing_columns == []
     assert result.unexpected_columns == []
-    assert result.duplicated_columns == []
+    assert result.duplicate_columns == []
 
 
 def test_missing_required_column_fails() -> None:
@@ -51,7 +51,7 @@ def test_duplicate_column_fails() -> None:
     result = validate_expected_columns(data)
 
     assert result.is_valid is False
-    assert result.duplicated_columns == ["VendorID"]
+    assert result.duplicate_columns == ["VendorID"]
 
 
 def test_empty_dataset_fails() -> None:

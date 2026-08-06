@@ -56,7 +56,7 @@ class ResultOfSchemaValidation:
     actual_columns: list[str]
     missing_columns: list[str]
     unexpected_columns: list[str]
-    duplicated_columns: list[str]
+    duplicate_columns: list[str]
     is_empty: bool
 
 
@@ -64,14 +64,15 @@ def validate_expected_columns(
     data: pd.DataFrame,
 ) -> ResultOfSchemaValidation:
     """
-    This function validates the basic structural contract of the dataset.
+    This function contains structural validation logic for the NYC Taxi data platform.
 
-    Structural validation fails when:
-        - One or more required columns are missing;
-        - Duplicate column names are present; or
-        - The dataset contains no rows.
+    The current validation scope checks whether the ingested dataset:
+        - contains all required source and provenance columns,
+        - report unexpected columns,
+        - contains no duplicate columns,
+        - contains at least one row.
 
-    The unexpected rows are recorded but do not currently fail validation.
+    The type, completeness and row-level data quality rules will be added later.
     """
     actual_columns = [str(column) for column in data.columns]
     actual_column_set = set(actual_columns)
@@ -103,7 +104,7 @@ def validate_expected_columns(
         actual_columns=actual_columns,
         missing_columns=missing_columns,
         unexpected_columns=unexpected_columns,
-        duplicated_columns=duplicate_columns,
+        duplicate_columns=duplicate_columns,
         is_empty=is_empty,
     )
 
@@ -112,7 +113,7 @@ def print_schema_validation_summary(
     result: ResultOfSchemaValidation,
 ) -> None:
     """
-    This function prints the schema column validation results to the terminal
+    This function prints the validation result to the terminal
     """
     print("\nSchema validation")
     print("-----------------")
@@ -121,4 +122,4 @@ def print_schema_validation_summary(
     print(f"Dataset is empty: {result.is_empty}")
     print(f"Missing columns: {result.missing_columns}")
     print(f"Unexpected columns: {result.unexpected_columns}")
-    print(f"Duplicate columns: {result.duplicated_columns}")
+    print(f"Duplicate columns: {result.duplicate_columns}")
