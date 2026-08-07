@@ -3,18 +3,19 @@
 """
 This script is the validation logic for the NYC Taxi data platform.
 
-The current validation scope checks whether the ingested dataset contains the
-expected source and provenance columns.
+This module defines structural and type-family validation for ingested data before records
+proceed into downstream transformation and row-level data quality checks
 
-The row-level data quality rules will be added later
+Completeness and row-level data-quality rules will be added later.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections import Counter
+from dataclasses import dataclass
 
 import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype, is_string_dtype
 
 EXPECTED_SOURCE_COLUMNS = {
     "VendorID",
@@ -47,6 +48,41 @@ EXPECTED_PROVENANCE_COLUMNS = {
 
 EXPECTED_COLUMNS = EXPECTED_SOURCE_COLUMNS | EXPECTED_PROVENANCE_COLUMNS
 
+EXPECTED_TYPE_FAMILIES = {
+    # Identifiers/codes
+    "VendorID": "numeric",
+    "RatecodeID": "numeric",
+    "PULocationID": "numeric",
+    "DOLocationID": "numeric",
+    "payment_type": "numeric",
+
+    # Temporal fields
+    "tpep_pickup_datetime": "datetime",
+    "tpep_dropoff_datetime": "datetime",
+
+    # Measures
+    "passenger_count": "numeric",
+    "trip_distance": "numeric",
+    "fare_amount": "numeric",
+    "extra": "numeric",
+    "mta_tax": "numeric",
+    "tip_amount": "numeric",
+    "tolls_amount": "numeric",
+    "improvement_surcharge": "numeric",
+    "total_amount": "numeric",
+    "congestion_surcharge": "numeric",
+    "airport_fee": "numeric",
+
+    # Categorical/text
+    "store_and_fwd_flag": "string",
+
+    # Provenance
+    "__source_file": "string",
+    "__source_url": "string",
+    "__ingested_at_utc": "string",
+    "__source_file_sha256": "string",
+}
+
 
 @dataclass(frozen=True)
 class ResultOfSchemaValidation:
@@ -58,6 +94,14 @@ class ResultOfSchemaValidation:
     unexpected_columns: list[str]
     duplicate_columns: list[str]
     is_empty: bool
+
+
+@dataclass(frozen=True)
+class ResultOfTypeValidation:
+    is_valid: bool
+    expected_type_families: dict[str, str]
+    actual_dtypes: dict[str, str]
+    invalid_type_columns: list[str]
 
 
 def validate_expected_columns(
@@ -106,6 +150,32 @@ def validate_expected_columns(
         unexpected_columns=unexpected_columns,
         duplicate_columns=duplicate_columns,
         is_empty=is_empty,
+    )
+
+
+def _matches_expected_type_family(
+    series: pd.Series,
+    expected_family: str,
+) -> bool:
+    """
+    This function checks whether a Pandas series matches the declared type family
+
+    Supported type families
+        -"numeric"
+        - "datetime"
+        - "string"
+    """
+    if expected_family == "numeric":
+        return is_numeric_dtype(series)
+
+    if expected_family == "datetime":
+        return is_datetime64_any_dtype(series)
+
+    if expected_family == "string":
+        return is_string_dtype(series)
+
+    raise ValueError(
+        f"This is an unsupported expected type family: {expected_family}"
     )
 
 
