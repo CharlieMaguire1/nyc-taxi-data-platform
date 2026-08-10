@@ -9,47 +9,104 @@ ready for row-level data quality checks.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from typing import Final
 
 import pandas as pd
 
 
+# ----------------------------------------------------------------------
+# Logging
+# ----------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------
+# Column contract
+# ----------------------------------------------------------------------
+
+COLUMN_PICKUP: Final[str] = "tpep_pickup_datetime"
+COLUMN_DROPOFF: Final[str] = "tpep_dropoff_datetime"
+COLUMN_DURATION: Final[str] = "trip_duration_minutes"
+COLUMN_DATE: Final[str] = "trip_date"
+
+
+# ----------------------------------------------------------------------
+# Transformation result
+# ----------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ResultOfTransformation:
     dataframe: pd.DataFrame
 
 
+# ----------------------------------------------------------------------
+# Transformation helpers
+# ----------------------------------------------------------------------
+
+def _derive_trip_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    This function derives deterministic trip-level metrics by using vectorised operations.
+    """
+
+
+    # Datetime casting is intentionally omitted here because upstream
+    # type-family contract requires both timestamp columns to be compatible to datetime
+    duration_series = df[COLUMN_DROPOFF] - df[COLUMN_PICKUP]
+
+    return df.assign(
+        **{
+            COLUMN_DURATION: duration_series.dt.total_seconds() / 60,
+            COLUMN_DATE: df[COLUMN_PICKUP].dt.normalize(),
+        }
+    )
+
+
+# ------------------------------------------------------------------------
+# Public transformation interface
+# ------------------------------------------------------------------------
+
 def transform_taxi_data(df: pd.DataFrame) -> ResultOfTransformation:
     """
-    This function applies Silver layer transformations
+    This function applies Silver-layer transformations
 
     Responsibilities include:
-    - ensure canonical datetime representation
-    - derive trip_duration_minutes
-    - derive trip_date
-    - preserve source columns and provenance
+    - Validating transformation prerequisites
+    - Deriving trip_duration_minutes
+    - Deriving trip_date
+    - Preserving source and provenance columns
+    - Providing structured pipeline logging
     """
-    data_silver = df.copy()
 
-    data_silver["tpep_pickup_datetime"] = pd.to_datetime(
-        data_silver["tpep_pickup_datetime"]
-    )
+    required_columns = {
+        COLUMN_PICKUP,
+        COLUMN_DROPOFF,
+    }
 
-    data_silver["tpep_dropoff_datetime"] = pd.to_datetime(
-        data_silver["tpep_dropoff_datetime"]
-    )
+    missing_columns = required_columns - set(df.columns)
 
-    duration_trip = (
-        data_silver["tpep_dropoff_datetime"] - data_silver["tpep_pickup_datetime"]
-    )
+    if missing_columns:
+        raise KeyError(
+            "Missing required columns for transformation: "
+            f"{sorted(missing_columns)}"
+        )
 
-    data_silver["trip_duration_minutes"] = (
-        duration_trip.dt.total_seconds() / 60
-    )
+    if df.empty:
+        raise ValueError(
+            "Cannot transform an empty dataframe"
+        )
 
-    data_silver["trip_date"] = data_silver["tpep_pickup_datetime"].dt.date
+    logger.info(
+    "Starting Silver transformation on dataframe with %s rows",
+    len(df),
+)
 
-    return ResultOfTransformation(
-        dataframe=data_silver
-    )
+    df_processed = df.pipe(_derive_trip_metrics)
+
+    logger.info(
+    "Completed Silver transformation with %s rows",
+    len(df_processed),
+)
+    return ResultOfTransformation(dataframe=df_processed)

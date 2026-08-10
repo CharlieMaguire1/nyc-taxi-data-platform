@@ -56,7 +56,7 @@ EXPECTED_TYPE_FAMILIES = {
     "DOLocationID": "numeric",
     "payment_type": "numeric",
 
-    # Temporal fields
+    # Temporal fields are expected as raw strings from the source file
     "tpep_pickup_datetime": "datetime",
     "tpep_dropoff_datetime": "datetime",
 
