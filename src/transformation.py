@@ -46,20 +46,33 @@ class ResultOfTransformation:
 # Transformation helpers
 # ----------------------------------------------------------------------
 
-def _derive_trip_metrics(df: pd.DataFrame) -> pd.DataFrame:
+
+def _canonicalise_datetime_columns(data: pd.DataFrame) -> pd.DataFrame:
+    column_pickup = pd.to_datetime(data[COLUMN_PICKUP])
+    column_dropoff = pd.to_datetime(data[COLUMN_DROPOFF])
+
+    return data.assign(
+        **{
+            COLUMN_PICKUP: column_pickup,
+            COLUMN_DROPOFF: column_dropoff,
+        }
+    )
+
+
+def _derive_trip_metrics(data: pd.DataFrame) -> pd.DataFrame:
     """
     This function derives deterministic trip-level metrics by using vectorised operations.
     """
 
 
-    # Datetime casting is intentionally omitted here because upstream
-    # type-family contract requires both timestamp columns to be compatible to datetime
-    duration_series = df[COLUMN_DROPOFF] - df[COLUMN_PICKUP]
+    # Datetime representation has already been canonicalised
+    # by _canonicalise_datetime_columns().
+    duration_series = data[COLUMN_DROPOFF] - data[COLUMN_PICKUP]
 
-    return df.assign(
+    return data.assign(
         **{
             COLUMN_DURATION: duration_series.dt.total_seconds() / 60,
-            COLUMN_DATE: df[COLUMN_PICKUP].dt.normalize(),
+            COLUMN_DATE: data[COLUMN_PICKUP].dt.normalize(),
         }
     )
 
@@ -68,7 +81,7 @@ def _derive_trip_metrics(df: pd.DataFrame) -> pd.DataFrame:
 # Public transformation interface
 # ------------------------------------------------------------------------
 
-def transform_taxi_data(df: pd.DataFrame) -> ResultOfTransformation:
+def transform_taxi_data(data: pd.DataFrame) -> ResultOfTransformation:
     """
     This function applies Silver-layer transformations
 
@@ -85,7 +98,7 @@ def transform_taxi_data(df: pd.DataFrame) -> ResultOfTransformation:
         COLUMN_DROPOFF,
     }
 
-    missing_columns = required_columns - set(df.columns)
+    missing_columns = required_columns - set(data.columns)
 
     if missing_columns:
         raise KeyError(
@@ -93,17 +106,20 @@ def transform_taxi_data(df: pd.DataFrame) -> ResultOfTransformation:
             f"{sorted(missing_columns)}"
         )
 
-    if df.empty:
+    if data.empty:
         raise ValueError(
             "Cannot transform an empty dataframe"
         )
 
     logger.info(
     "Starting Silver transformation on dataframe with %s rows",
-    len(df),
+    len(data),
 )
-
-    df_processed = df.pipe(_derive_trip_metrics)
+    df_processed = (
+        data
+        .pipe(_canonicalise_datetime_columns)
+        .pipe(_derive_trip_metrics)
+    )
 
     logger.info(
     "Completed Silver transformation with %s rows",
