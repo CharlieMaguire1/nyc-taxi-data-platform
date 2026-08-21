@@ -56,7 +56,7 @@ EXPECTED_TYPE_FAMILIES = {
     "DOLocationID": "numeric",
     "payment_type": "numeric",
 
-    # Temporal fields
+    # Temporal fields are expected as datetime-compatible columns
     "tpep_pickup_datetime": "datetime",
     "tpep_dropoff_datetime": "datetime",
 
@@ -153,7 +153,69 @@ def validate_expected_columns(
     )
 
 
-def _matches_expected_type_family(
+def print_schema_validation_summary(
+    result: ResultOfSchemaValidation,
+) -> None:
+    """
+    This function prints the validation result to the terminal
+    """
+    print("\nSchema validation")
+    print("-----------------")
+    print(f"Is valid: {result.is_valid}")
+    print(f"Row count: {result.row_count:,}")
+    print(f"Dataset is empty: {result.is_empty}")
+    print(f"Missing columns: {result.missing_columns}")
+    print(f"Unexpected columns: {result.unexpected_columns}")
+    print(f"Duplicate columns: {result.duplicate_columns}")
+
+
+def validate_expected_type_families(
+    data: pd.DataFrame
+) -> ResultOfTypeValidation:
+    """
+    This function validates expected type families after schema validation
+    """
+    actual_dtypes: dict[str, str] = {}
+    invalid_type_columns: list[str] = []
+
+    for column_name, expected_family in EXPECTED_TYPE_FAMILIES.items():
+        series = data[column_name]
+
+        actual_dtypes[column_name] = str(series.dtype)
+
+        is_type_valid = _validate_expected_type_family(
+            series=series,
+            expected_family=expected_family,
+        )
+
+        if not is_type_valid:
+            invalid_type_columns.append(column_name)
+
+    is_valid = not invalid_type_columns
+
+    return ResultOfTypeValidation(
+        is_valid=is_valid,
+        expected_type_families=EXPECTED_TYPE_FAMILIES,
+        actual_dtypes=actual_dtypes,
+        invalid_type_columns=invalid_type_columns,
+    )
+
+
+def print_type_validation_summary(
+    result: ResultOfTypeValidation,
+) -> None:
+    """
+    The function prints the transformation result to the terminal
+    """
+    print("\nType family validation")
+    print("-----------------")
+    print(f"Is valid: {result.is_valid}")
+    print(f"Expected type families: {result.expected_type_families}")
+    print(f"Actual dtypes: {result.actual_dtypes}")
+    print(f"Invalid type columns: {result.invalid_type_columns}")
+
+
+def _validate_expected_type_family(
     series: pd.Series,
     expected_family: str,
 ) -> bool:
@@ -177,19 +239,3 @@ def _matches_expected_type_family(
     raise ValueError(
         f"This is an unsupported expected type family: {expected_family}"
     )
-
-
-def print_schema_validation_summary(
-    result: ResultOfSchemaValidation,
-) -> None:
-    """
-    This function prints the validation result to the terminal
-    """
-    print("\nSchema validation")
-    print("-----------------")
-    print(f"Is valid: {result.is_valid}")
-    print(f"Row count: {result.row_count:,}")
-    print(f"Dataset is empty: {result.is_empty}")
-    print(f"Missing columns: {result.missing_columns}")
-    print(f"Unexpected columns: {result.unexpected_columns}")
-    print(f"Duplicate columns: {result.duplicate_columns}")
