@@ -6,7 +6,7 @@ from __future__ import annotations
 These are the central paths definitions for the NYC Taxi data platform.
 
 This module centralises project directory and file path definitions so that the
-ingestion, validation, transformation, and reporting stages use consistent, 
+ingestion, validation, transformation, and reporting stages use consistent,
 reusable paths instead of embedding directory strings directly inside their
 implementation.
 
@@ -19,23 +19,41 @@ Current stage:
 from pathlib import Path
 
 
-# Project root: src/paths.py -> src/ -> project root
+# ----------------------------------------------------------------------
+# Project root
+# ----------------------------------------------------------------------
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+# ----------------------------------------------------------------------
+# Data directories
+# ----------------------------------------------------------------------
 
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
+
+
+# ----------------------------------------------------------------------
+# Output directories
+# ----------------------------------------------------------------------
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 METRICS_DIR = OUTPUTS_DIR / "metrics"
 FIGURES_DIR = OUTPUTS_DIR / "figures"
 
 
+# ----------------------------------------------------------------------
+# Output directories
+# ----------------------------------------------------------------------
+
+
 def check_project_dirs() -> None:
     """
     This function creates the standard project directories if they do not exist.
-    
-    This enables the pipeline to be safe to run from a new repo clone.
+
+    This enables the pipeline to be safe to run from a new repository clone.
     """
     directories = [
         RAW_DATA_DIR,
@@ -43,6 +61,6 @@ def check_project_dirs() -> None:
         METRICS_DIR,
         FIGURES_DIR,
     ]
-    
+
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
