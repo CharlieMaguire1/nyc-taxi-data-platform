@@ -13,9 +13,12 @@ The current batch pipeline executes the following stages:
     Verify that the expected columns belong to the required pandas dtype families.
 4. Silver transformation:
     Derive trip_duration_minutes and trip_date while preserving source and provenance data.
+5. Row-level data quality:
+    Apply business quality rules and separate accepted and quarantined rows.
+6. Local persistence:
+    Persist accepted and quarantined datasets as Parquet and quality metrics as JSON
 
-The later stages will add the row-level data quality evaluation, quarantine handling,
-Silver persistence, outputs ready for analytics, and orchestration.
+The later stages will include S3, Snowflake, dbt, Airflow, etc.
 
 Detailed implementation logic remains inside src/.
 """
@@ -28,7 +31,12 @@ import sys
 import pandas as pd
 
 from src.ingestion import print_ingestion_summary, run_ingestion
-from src.paths import check_project_dirs
+from src.paths import (
+    check_project_dirs,
+    METRICS_DIR,
+    ACCEPTED_DATA_DIR,
+    QUARANTINE_DATA_DIR,
+)
 from src.transformation import transform_taxi_data
 from src.validation import (
     validate_expected_columns,
@@ -36,10 +44,14 @@ from src.validation import (
     validate_expected_type_families,
     print_type_validation_summary,
 )
+from src.quality import quality_gate
+from src.persistence import save_dataframe, save_metrics_json
+
 
 # Configuration of basic logging format for visibility in the console
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     """
@@ -84,7 +96,55 @@ def main() -> None:
         f"New metrics generated: ['trip_duration_minutes', 'trip_date']"
     )
 
-    # NEXT STAGE: To save the curated df_transformed outputs to the silver zone
+    # 5. Data Quality layer
+    logger.info("Proceeding to Data Quality Check layer....")
+    result_of_quality = quality_gate(dataframe=df_transformed)
+
+    quality_checked_clean_df = result_of_quality.clean_dataframe
+    quality_checked_quarantined_df = result_of_quality.quarantined_dataframe
+
+    # 6. Persistence layer
+    logger.info("Proceeding to Persistence layer....")
+
+    source_filename = result_of_ingestion.output_path.name
+    accepted_output_path = ACCEPTED_DATA_DIR / source_filename
+    quarantined_output_path = QUARANTINE_DATA_DIR / source_filename
+
+    source_stem = result_of_ingestion.output_path.stem
+    metrics_output_path = METRICS_DIR / f"{source_stem}_quality.json"
+
+    quality_metrics = {
+        "total_rows": result_of_quality.total_rows,
+        "clean_rows": result_of_quality.clean_rows,
+        "quarantined_rows": result_of_quality.quarantined_rows,
+        "invalid_row_pct": result_of_quality.invalid_row_pct,
+        "passed_quality_threshold": result_of_quality.passed_quality_threshold,
+        "failures_by_rule": result_of_quality.failures_by_rule,
+    }
+
+    save_dataframe(
+        dataframe=quality_checked_clean_df,
+        output_path=accepted_output_path,
+    )
+
+    save_dataframe(
+        dataframe=quality_checked_quarantined_df,
+        output_path=quarantined_output_path,
+    )
+
+    save_metrics_json(
+        metrics=quality_metrics,
+        output_path=metrics_output_path
+    )
+
+    if not result_of_quality.passed_quality_threshold:
+        logger.error(
+            f"Pipeline failed quality threshold:"
+            f"{result_of_quality.invalid_row_pct:.2f}% invalid rows"
+        )
+        sys.exit(1)
+
+    logger.info("Pipeline completed successfully.")
 
 
 if __name__ == "__main__":
