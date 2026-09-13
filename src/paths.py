@@ -33,6 +33,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
+ACCEPTED_DATA_DIR = PROCESSED_DATA_DIR / "accepted"
+QUARANTINE_DATA_DIR = PROCESSED_DATA_DIR / "quarantined"
 
 
 # ----------------------------------------------------------------------
@@ -58,6 +60,8 @@ def check_project_dirs() -> None:
     directories = [
         RAW_DATA_DIR,
         PROCESSED_DATA_DIR,
+        ACCEPTED_DATA_DIR,
+        QUARANTINE_DATA_DIR,
         METRICS_DIR,
         FIGURES_DIR,
     ]
