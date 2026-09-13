@@ -33,6 +33,12 @@ SOURCE_FILENAME: Final[str] = "yellow_tripdata_2023-01.parquet"
 MAX_INVALID_ROW_PCT = 5.0
 
 
+VALID_RATECODE_IDS = {1, 2, 3, 4, 5, 6, 99}
+VALID_VENDOR_IDS = {1, 2}
+VALID_STORE_AND_FWD_FLAGS = {"Y", "N"}
+VALID_PAYMENT_TYPES = {0, 1, 2, 3, 4, 5, 6}
+
+
 # ----------------------------------------------------------------------
 # AWS/ S3 configuration
 # ----------------------------------------------------------------------
