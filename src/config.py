@@ -47,4 +47,8 @@ AWS_REGION: Final[str] = os.getenv("AWS_REGION", "eu-west-2")
 
 S3_BUCKET_NAME: Final[str | None] = os.getenv("NYC_TAXI_S3_BUCKET")
 
+S3_RAW_PREFIX: Final[str] = "raw"
 S3_SILVER_PREFIX: Final[str] = "silver"
+S3_ACCEPTED_PREFIX: Final[str] = "silver/accepted"
+S3_QUARANTINE_PREFIX: Final[str] = "silver/quarantined"
+S3_METRICS_PREFIX: Final[str] = "metrics"
