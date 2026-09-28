@@ -2,174 +2,421 @@
 
 ## Project overview
 
-This project is a deterministic batch data pipeline for NYC Yellow Taxi trip data.
+The **NYC Taxi Data Platform** is a deterministic batch data engineering project built around NYC TLC Yellow Taxi trip data.
 
-The platform is being developed in stages:
+The project is designed as an end-to-end batch pipeline that progressively moves source data through:
 
 1. Ingestion
-2. Validation
-3. Cleaning and preprocessing
-4. Transformation
-5. Analytics outputs
-6. Orchestration
+2. Structural and type validation
+3. Transformation
+4. Row-level data-quality validation
+5. Accepted and quarantined datasets
+6. Local and cloud persistence
+7. Snowflake loading
+8. dbt modelling
+9. Airflow orchestration
+10. Monitoring and reconciliation
 
-The current implementation contains a working ingestion stage and an initial structural validation stage. Later stages will introduce type-family checks, completeness profiling, row-level data quality rules, deterministic cleaning, analytics-ready tables and orchestration.
+The current implementation covers the pipeline from **source ingestion through local persistence and S3 persistence**.
 
-## Current pipeline stages
+Snowflake, dbt and Airflow are the next planned stages.
 
-The current pipeline ingests one monthly NYC TLC Yellow Taxi parquet file:
+---
+
+## Current architecture
+
+```text
+NYC TLC Parquet
+       │
+       ▼
+┌──────────────────────┐
+│      Ingestion       │
+│ download / reuse     │
+│ provenance metadata  │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│      Validation      │
+│ structural contract  │
+│ type-family checks   │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  Silver Transform    │
+│ canonical datetimes  │
+│ derived columns      │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ Row-level Data       │
+│ Quality Validation   │
+│                      │
+│ valid / invalid rows │
+└───────┬────────┬─────┘
+        │        │
+        ▼        ▼
+   Accepted   Quarantined
+     rows         rows
+        │        │
+        └───┬────┘
+            ▼
+┌──────────────────────┐
+│     Persistence      │
+│ Parquet + JSON       │
+│ local filesystem     │
+│ S3                   │
+└──────────┬───────────┘
+           │
+           ▼
+      Snowflake
+        planned
+           │
+           ▼
+          dbt
+        planned
+           │
+           ▼
+        Airflow
+        planned
+```
+
+---
+
+## Source dataset
+
+The current pipeline processes the January 2023 NYC TLC Yellow Taxi parquet dataset:
 
 ```text
 yellow_tripdata_2023-01.parquet
 ```
 
-The ingestion stage currently:
+The source contains:
 
-- Downloads the source parquet file using a streamed HTTP request.
-- Reuses an existing raw file when a non-empty local copy is already available.
-- Writes new downloads to a temporary `.part` file before moving them to the final path.
-- Removes incomplete temporary downloads left by failed runs.
-- Stores the unmodified source file in `data/raw/`.
-- Reads the source parquet file into a pandas DataFrame.
-- Calculates the source file size and SHA-256 hash.
-- Adds four provenance columns:
-  - `__source_file`
-  - `__source_url`
-  - `__ingested_at_utc`
-  - `__source_file_sha256`
-- Saves the ingested parquet output to `data/processed/`.
-- Prints an ingestion summary containing:
-  - source URL
-  - source and output paths
-  - ingestion timestamp
-  - source file size
-  - SHA-256 hash
-  - row count
-  - column count
-  - column names
-  - pandas data types
+- **3,066,766 rows**
+- **19 original source columns**
 
-The raw source file remains separate from the pipeline-produced ingestion output. This supports traceability, reproducibility and debugging.
+The ingestion process adds four provenance columns:
 
-## Current status
+- `__source_file`
+- `__source_url`
+- `__ingested_at_utc`
+- `__source_file_sha256`
 
-The ingestion stage has been tested successfully for both:
+This produces an ingested dataset containing **23 columns** before later transformation-derived fields are added.
 
-- downloading the source file from NYC TLC
-- reusing an existing local source file
+---
 
-The January 2023 source file produced:
+## Ingestion
 
-- 3,066,766 rows
-- 19 original source columns
-- 4 added provenance columns
-- 23 columns in the ingested output
+The ingestion stage provides repeatable source acquisition while keeping the original source file separate from pipeline-produced datasets.
 
-The fresh download and reused local file produced the same source file size and SHA-256 hash.
+It currently:
 
-Structural validation is implemented and covered by automated tests. Further validation remains in progress: cleaning, transformation, analytics tables and orchestration remain planned.
+- Downloads the NYC TLC parquet file using streamed HTTP requests
+- Reuses an existing non-empty raw file when available
+- Writes downloads to a temporary `.part` file before moving them to the final path
+- Removes incomplete temporary downloads left by failed runs
+- Stores the unmodified source file under `data/raw/`
+- Loads the parquet file into a pandas DataFrame
+- Calculates source file size
+- Calculates a SHA-256 source-file hash
+- Records ingestion provenance at row level
+- Produces deterministic metadata for later traceability and debugging
 
-## Decision layer
+The downloaded and locally reused versions of the January 2023 source file produce the same source-file size and SHA-256 hash.
 
-The longer-term objective is to produce reliable daily trip and fare metrics from raw monthly taxi files.
+---
 
-Potential users include analysts and operational stakeholders who need trustworthy data for:
+## Validation
 
-- trip-volume analysis
-- fare and revenue interpretation
-- data-quality monitoring
-- anomaly detection
+Validation is divided into **dataset-level validation** and **row-level data-quality validation**.
 
-Unreliable or unstable input data can distort demand analysis, revenue interpretation and operational decision-making.
+### Structural validation
 
-The current ingestion and structural validation stages support the first pipeline decision:
+Before transformation, the pipeline verifies the expected dataset contract.
 
-> Can a raw monthly taxi trip file be ingested in a repeatable and traceable manner, and does the resulting dataset satisfy the expected structural contract before downstream cleaning and transformation?
+Checks include:
 
-Later stages will extend the platform with data-quality outputs and analytics-ready tables such as daily trip and fare metrics.
+- Required columns
+- Missing columns
+- Unexpected columns
+- Duplicate columns
+- Empty datasets
+- Dataset row count
 
-## Repository structure
+The policy is intentionally explicit:
+
+- Missing required columns cause validation failure
+- Duplicate columns cause validation failure
+- Empty datasets cause validation failure
+- Unexpected columns are reported without automatically failing the dataset
+
+Validation results are returned through structured Python objects rather than relying only on printed output.
+
+---
+
+## Type-family validation
+
+The pipeline also validates broad type families for important fields.
+
+Supported checks include:
+
+- datetime
+- numeric
+- integer
+- string
+
+This catches schema drift and incompatible source data before downstream transformations or warehouse loading.
+
+The checks focus on expected semantic type families rather than unnecessarily requiring identical low-level pandas dtypes.
+
+---
+
+## Silver transformation
+
+After dataset-level validation, the pipeline creates a deterministic Silver representation of the source data.
+
+Transformations currently include:
+
+- Canonical pickup datetime
+- Canonical drop-off datetime
+- `trip_duration_minutes`
+- `trip_date`
+- Preservation of ingestion provenance
+
+The transformation layer separates source representation from the canonical representation expected by downstream quality checks and analytical models.
+
+---
+
+## Row-level data quality
+
+The pipeline applies explicit business and technical rules to individual trip records.
+
+Current checks include:
+
+### Distance
+
+- Trip distance must not be negative
+
+### Duration
+
+- Trip duration must not be negative
+
+### Required trip fields
+
+Records are checked for required values including:
+
+- pickup datetime
+- drop-off datetime
+- pickup location
+- drop-off location
+
+### Domain validation
+
+Categorical values are checked against expected domains, including:
+
+- `payment_type`
+- `RatecodeID`
+- `VendorID`
+- `store_and_fwd_flag`
+
+### Temporal consistency
+
+- Drop-off time must occur after pickup time
+
+Rows failing one or more rules receive explicit rejection reasons.
+
+This makes failed records inspectable rather than silently deleting or modifying them.
+
+---
+
+## Accepted and quarantined datasets
+
+Data-quality evaluation splits the transformed dataset into two outputs:
 
 ```text
-nyc-taxi-data-platform/
-├── data/
-│   ├── processed/
-│   │   └── .gitkeep
-│   └── raw/
-│       └── .gitkeep
-├── outputs/
-│   ├── figures/
-│   ├── logs/
-│   └── metrics/
-│       └── .gitkeep
-├── sql/
-├── src/
-│   ├── __init__.py
-│   ├── ingestion.py
-│   ├── paths.py
-│   └── validation.py
-├── tests/
-│   └── test_validation.py
-├── .env.example
-├── .gitignore
-├── environment.yml
-├── README.md
-├── requirements.txt
-└── run_pipeline.py
+Accepted rows
+Quarantined rows
 ```
 
-Generated data files are excluded from Git. `.gitkeep` files preserve the required directory structure.
+For the January 2023 source dataset:
 
-## Current validation stage
+| Metric | Result |
+|---|---:|
+| Total rows | 3,066,766 |
+| Accepted rows | 2,995,020 |
+| Quarantined rows | 71,746 |
+| Invalid row percentage | 2.339% |
 
-The pipeline performs structural validation after ingestion.
+The current maximum permitted invalid-row threshold is:
 
-The current validation stage checks the following:
+```text
+5.0%
+```
 
-- All required source and provenance columns are present
-- Unexpected columns are reported
-- Duplicate columns are detected
-- The dataset contains at least one row
-- The dataset row count is recorded
+The January dataset therefore passes the configured pipeline quality threshold.
 
-The current validation policy is:
+The dominant failures in this dataset are missing:
 
-- Required columns that are missing cause validation failure
-- Duplicate column names cause validation failure
-- Empty datasets cause validation failure
-- Unexpected columns are reported without triggering validation failure
+- `RatecodeID`
+- `store_and_fwd_flag`
 
-The validation result is returned as a structured dataclass and printed as part of the pipeline summary.
+These occur in approximately 71,743 rows each.
 
-Type-family, completeness checks, null profiling and row-level data quality rules remain planned.
+The pipeline preserves these records in quarantine instead of silently discarding them.
+
+---
+
+## Data-quality metrics
+
+The pipeline generates metrics describing each batch, including:
+
+- Total records
+- Accepted records
+- Quarantined records
+- Invalid-row percentage
+- Quality threshold
+- Rule-level failure counts
+- Pipeline pass/fail status
+
+Metrics are persisted separately from the data so that future orchestration and monitoring layers can consume them.
+
+---
+
+## Persistence
+
+### Local persistence
+
+Pipeline outputs are persisted locally as deterministic artifacts.
+
+Current output categories include:
+
+```text
+data/processed/accepted/
+data/processed/quarantined/
+outputs/metrics/
+```
+
+Accepted and quarantined datasets are stored independently so downstream consumers cannot accidentally treat rejected records as production-quality data.
+
+Data outputs use parquet, while pipeline metrics use structured JSON where appropriate.
+
+---
+
+## Amazon S3 persistence
+
+The project also supports persistence to Amazon S3.
+
+The AWS configuration uses environment-driven values rather than embedding infrastructure credentials or deployment-specific settings in source code.
+
+Current configuration includes:
+
+```text
+AWS_REGION=eu-west-2
+S3_BUCKET=<configured through environment>
+```
+
+The default Silver object prefix is:
+
+```text
+silver/
+```
+
+S3 uploads use `boto3`.
+
+The persistence implementation separates:
+
+- local output creation
+- S3 object-key construction
+- cloud upload behaviour
+
+This keeps the transformation and quality layers independent of the persistence destination.
+
+The associated AWS environment uses:
+
+- private S3 access
+- public-access blocking
+- SSE-S3 server-side encryption
+- IAM permissions scoped to required S3 operations
+
+---
 
 ## Automated tests
 
-The structural validation logic is covered by five automated pytest tests:
+The project currently contains **31 pytest tests** covering the implemented pipeline components.
 
-- A valid dataset passes
-- A missing required column causes validation failure
-- A duplicate column causes validation failure
-- An empty dataset causes validation failure
-- An unexpected column is reported without causing validation failure
+Test coverage includes:
 
-The tests use small synthetic pandas DataFrames so that they run quickly without loading the whole NYC Taxi dataset.
+- structural validation
+- type-family validation
+- transformations
+- row-level data-quality rules
+- local persistence
+- S3 persistence behaviour
 
-## Running the tests
+Tests primarily use small synthetic DataFrames and mocked external interactions so that pipeline logic can be tested without repeatedly processing the complete 3-million-row source dataset or making unnecessary network calls.
 
-From the project root, run:
+Run the full test suite from the project root:
 
 ```bash
 python -m pytest
 ```
 
+---
+
+## Repository structure
+
+The repository has evolved beyond the original ingestion-only implementation.
+
+A simplified view of the current organisation is:
+
+```text
+nyc-taxi-data-platform/
+│
+├── data/
+│   ├── raw/
+│   └── processed/
+│       ├── accepted/
+│       └── quarantined/
+│
+├── outputs/
+│   └── metrics/
+│
+├── sql/
+│
+├── src/
+│   ├── __init__.py
+│   ├── ingestion.py
+│   ├── validation.py
+│   ├── transformation.py
+│   ├── quality.py
+│   ├── persistence.py
+│   └── paths.py
+│
+├── tests/
+│
+├── .env.example
+├── .gitignore
+├── environment.yml
+├── requirements.txt
+├── README.md
+└── run_pipeline.py
+```
+
+Generated data files are excluded from Git.
+
+Directory placeholders such as `.gitkeep` are used where required so the repository retains the expected project structure without committing large source or processed datasets.
+
+---
+
 ## Environment setup
 
-The project supports setup through either Conda or pip.
+The project supports Conda and pip-based development environments.
 
 ### Conda
-
-Create the environment from `environment.yml`:
 
 ```bash
 conda env create -f environment.yml
@@ -178,7 +425,7 @@ conda activate nyc-taxi-de
 
 ### pip
 
-Create or activate a virtual environment:
+Create a virtual environment:
 
 ```bash
 python -m venv .venv
@@ -186,67 +433,255 @@ python -m venv .venv
 
 On Windows:
 
-```bash
+```text
 .venv\Scripts\activate
 ```
 
-Install the project dependencies:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-The current dependencies are:
+Core technologies currently include:
 
 - Python 3.11
 - pandas
 - pyarrow
 - requests
+- boto3
 - pytest
 
-## Running the current pipeline
+Later stages will extend the stack with Snowflake, dbt and Airflow.
 
-From the project root, run:
+---
+
+## Running the pipeline
+
+From the project root:
 
 ```bash
 python run_pipeline.py
 ```
 
-On the first run, the pipeline downloads the source parquet file. On later runs, it reuses the existing non-empty raw file.
+At the implemented stage, the pipeline performs the following logical sequence:
 
-The current pipeline:
+1. Download or reuse the raw NYC TLC parquet file
+2. Calculate source metadata and provenance
+3. Load the source dataset
+4. Validate the dataset structure
+5. Validate expected type families
+6. Create the canonical Silver representation
+7. Apply row-level data-quality rules
+8. Split records into accepted and quarantined datasets
+9. Calculate batch-level quality metrics
+10. Persist accepted records
+11. Persist quarantined records
+12. Persist quality metrics
+13. Upload configured outputs to Amazon S3
 
-1. downloads or reuses the raw source parquet file
-2. calculates source-file metadata and provenance
-3. saves the ingested parquet output
-4. reloads the ingested dataset
-5. performs structural validation
-6. prints ingestion and validation summaries
+---
 
-## Work in progress
+## Engineering decisions
 
-This repository is actively being developed.
+Several design choices are intentional.
 
-Current stage:
+### Raw data is immutable
 
-- [x] Project structure
-- [x] Single-file batch ingestion
-- [x] Streamed source download
-- [x] Temporary-file protection for incomplete downloads
-- [x] Source file hashing
-- [x] Row-level provenance metadata
-- [x] Processed parquet output
-- [x] Structural schema validation
-- [x] Required-column checks
-- [x] Unexpected-column reporting
-- [x] Duplicate-column detection
-- [x] Empty-dataset detection
-- [x] Automated validation tests
-- [x] Reproducible Conda and pip environment specifications
-- [ ] Type-family validation
-- [ ] Completeness and null-profile checks
-- [ ] Row-level data-quality rules
-- [ ] Deterministic cleaning
-- [ ] Analytics-ready transformations
-- [ ] Daily trip and fare metrics
-- [ ] Pipeline orchestration
+The original NYC TLC parquet file is preserved independently from pipeline-generated datasets.
+
+This supports:
+
+- reproducibility
+- debugging
+- lineage
+- reprocessing
+
+### Invalid records are quarantined
+
+Rows that fail data-quality rules are not silently dropped.
+
+They are persisted separately with rejection reasons so failures can be investigated and pipeline behaviour can be audited.
+
+### Data quality has a threshold
+
+The pipeline evaluates the percentage of invalid rows rather than assuming that every production source will be perfectly clean.
+
+The current threshold is:
+
+```text
+MAX_INVALID_ROW_PCT = 5.0
+```
+
+This separates individual record failures from batch-level acceptance.
+
+### Infrastructure configuration is externalised
+
+Environment-specific values such as the S3 bucket and AWS region are supplied through configuration rather than embedded directly in application logic.
+
+### External interactions are testable
+
+Network and cloud interactions are isolated so tests can mock those boundaries while testing deterministic pipeline behaviour independently.
+
+---
+
+## Decision layer
+
+The objective is not simply to move a parquet file between systems.
+
+The platform is intended to produce trustworthy analytical datasets while making data-quality failures visible.
+
+Potential downstream users include analysts and operational stakeholders working with:
+
+- trip-volume analysis
+- fare and revenue analysis
+- demand patterns
+- data-quality monitoring
+- anomaly investigation
+
+The pipeline therefore answers progressively stronger questions.
+
+### Dataset contract
+
+> Does the incoming batch satisfy the structural and semantic assumptions required by the pipeline?
+
+### Row-level quality
+
+> Which individual records violate expected trip, temporal, completeness or domain rules?
+
+### Batch quality
+
+> Is the proportion of invalid data within an acceptable operational threshold?
+
+### Traceability
+
+> Can every processed record and batch be traced back to its original source and ingestion event?
+
+Future warehouse and modelling stages will extend this into analytical and reconciliation questions.
+
+---
+
+## Current project status
+
+### Implemented
+
+- Project structure
+- Reproducible Python environment
+- Streamed NYC TLC source ingestion
+- Existing-file reuse
+- Temporary download protection
+- Source SHA-256 hashing
+- Row-level provenance
+- Structural validation
+- Required-column validation
+- Unexpected-column reporting
+- Duplicate-column detection
+- Empty-dataset detection
+- Type-family validation
+- Canonical Silver transformation
+- Derived trip-duration field
+- Derived trip-date field
+- Row-level completeness rules
+- Row-level domain rules
+- Distance validation
+- Duration validation
+- Temporal validation
+- Explicit rejection reasons
+- Accepted/quarantined dataset split
+- Invalid-row percentage calculation
+- Configurable batch-quality threshold
+- Local parquet persistence
+- JSON metrics persistence
+- Amazon S3 persistence
+- Automated pytest coverage
+- Mocked persistence tests
+- End-to-end processing of the January 2023 dataset
+
+### Next
+
+The remaining planned sequence is:
+
+1. **Snowflake**
+   - external stage / S3 integration
+   - target table design
+   - `COPY INTO`
+   - load validation
+   - source-to-target reconciliation
+
+2. **dbt**
+   - staging models
+   - dimensional modelling
+   - fact and dimension tables
+   - tests
+   - documentation
+   - analytics-ready Gold layer
+
+3. **Airflow**
+   - DAG definition
+   - dependency management
+   - scheduled execution
+   - retries and failure handling
+
+4. **Production engineering**
+   - reconciliation metrics
+   - structured monitoring
+   - failure observability
+   - operational documentation
+
+---
+
+## Planned target architecture
+
+```text
+NYC TLC
+   │
+   ▼
+Python ingestion
+   │
+   ▼
+Validation
+   │
+   ▼
+Silver transformation
+   │
+   ▼
+Row-level quality
+   │
+   ├──────────────► Quarantine
+   │
+   ▼
+Accepted Silver data
+   │
+   ▼
+Amazon S3
+   │
+   ▼
+Snowflake
+   │
+   ▼
+dbt
+   │
+   ▼
+Analytics-ready facts and dimensions
+   │
+   ▼
+Downstream analytics
+
+Airflow will orchestrate the end-to-end batch workflow.
+```
+
+---
+
+## Development philosophy
+
+The project is intentionally being developed stage by stage rather than as a single monolithic pipeline.
+
+Each stage has:
+
+- a defined responsibility
+- explicit input/output boundaries
+- validation or quality checks
+- automated tests
+- independently inspectable outputs
+
+The goal is to demonstrate not only that the pipeline can process the NYC Taxi dataset, but that its behaviour is **traceable, deterministic, testable and suitable for extension into a warehouse-oriented data platform**.
