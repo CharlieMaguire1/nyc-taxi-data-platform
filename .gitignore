@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+*.pyc
 *.py[cod]
 *.pyo
 *.pyd
@@ -8,6 +9,10 @@ __pycache__/
 .eggs/
 build/
 dist/
+
+# Pytest artifacts
+.pytest_cache/
+.pytest_temp_repro/
 
 # Virtual environments
 .venv/
